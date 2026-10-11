@@ -1,0 +1,144 @@
+<script setup lang="ts">
+import {Card, CardContent, CardHeader} from "@/components/ui/card";
+import {Button} from "@/components/ui/button";
+import {Input} from "@/components/ui/input";
+import {FormControl, FormField, FormItem, FormLabel, FormMessage,} from '@/components/ui/form';
+import {z} from 'zod';
+import {useForm} from "vee-validate";
+import {toTypedSchema} from '@vee-validate/zod';
+import {Separator} from "@/components/ui/separator";
+import {useUserData} from "@/stores/userData.ts";
+import {IsSuccessful} from "@/scripts/utils.ts";
+import {Login} from "@/api/controllers/auth.controller.ts";
+import {CreateUser} from "@/api/controllers/user/user.controller.ts";
+import {toast} from "vue-sonner";
+
+const formSchema = z.object({
+  login: z.string().min(2, "Минимум 2 символа").max(50, "Слишком длинное имя"),
+  password: z.string().min(5, "Минимум 6 символов").max(40, "Слишком длинный пароль"),
+  confirmPassword: z.string()
+}).refine(data => props.login || data.password === data.confirmPassword, {
+  message: "Пароли не совпадают",
+  path: ["confirmPassword"]
+});
+
+const form = useForm({
+  validationSchema: toTypedSchema(formSchema),
+  initialValues: {
+    login: '',
+    password: '',
+    confirmPassword: '',
+  },
+});
+
+const onSubmit = form.handleSubmit(async (values) => {
+  await form.validate()
+
+  if (props.login) {
+    await HandleLogin()
+  } else {
+    await Register()
+  }
+});
+
+const props = defineProps<{
+  login: boolean
+}>()
+
+function GetAuthLabel(login: boolean) {
+  return login ? 'Войти' : 'Регистрация'
+}
+
+const userData = useUserData()
+
+async function HandleLogin() {
+  const result = await Login(form.values.login ?? '', form.values.password ?? '')
+
+  form.resetField("password")
+  if (!result || !IsSuccessful(result.status)) {
+    form.setErrors({
+      login: 'Неверный логин или пароль',
+      password: 'Неверный логин или пароль'
+    })
+    form.setFieldTouched('password', true)
+    return
+  }
+
+  userData.loggedIn = true
+  const user = userData.ParseUserData(result.data.user)
+  if (!user) return
+
+  userData.user = user
+
+  form.resetForm()
+}
+
+async function Register() {
+  const result = await CreateUser(
+      form.values.login ?? '',
+      form.values.password ?? '',
+      userData.user.colorTheme)
+
+  if (!IsSuccessful(result.status)) return
+
+  await HandleLogin()
+}
+</script>
+
+<template>
+  <Card class="w-120 mx-auto h-full flex flex-col">
+    <CardHeader>
+      <div class="flex-center justify-between">
+        <h1 class="text-2xl font-bold font-secondary">{{ GetAuthLabel(props.login) }}</h1>
+      </div>
+    </CardHeader>
+
+    <CardContent class="flex grow flex-col">
+      <form @submit="onSubmit" class="space-y-4 flex flex-col justify-between h-full">
+        <div class="flex flex-col gap-4">
+          <!-- login -->
+          <FormField v-slot="{ componentField }" name="login">
+            <FormItem>
+              <FormLabel>Имя пользователя</FormLabel>
+              <FormControl>
+                <Input type="text" v-bind="componentField"/>
+              </FormControl>
+              <FormMessage/>
+            </FormItem>
+          </FormField>
+
+          <!-- password -->
+          <Separator/>
+          <FormField v-slot="{ componentField }" name="password">
+            <FormItem class="mt-2">
+              <FormLabel>Пароль</FormLabel>
+              <FormControl>
+                <Input type="password" v-bind="componentField"/>
+              </FormControl>
+              <FormMessage/>
+            </FormItem>
+          </FormField>
+
+          <!-- repeat password -->
+          <FormField v-if="!login" v-slot="{ componentField }" name="confirmPassword">
+            <FormItem v-motion-slide-bottom>
+              <FormLabel>Подтвердите пароль</FormLabel>
+              <FormControl>
+                <Input type="password" v-bind="componentField"/>
+              </FormControl>
+              <FormMessage/>
+            </FormItem>
+          </FormField>
+        </div>
+
+        <Button type="submit" class="w-full mb-30">Отправить</Button>
+      </form>
+
+      <Button variant="secondary" class="w-30 flex justify-start" as-child>
+        <RouterLink :to="props.login ? '/register' : '/login'">
+          &gt; {{ GetAuthLabel(!props.login) }}
+        </RouterLink>
+      </Button>
+    </CardContent>
+  </Card>
+</template>
